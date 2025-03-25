@@ -1,4 +1,4 @@
-package main
+package tarix
 
 import (
 	"archive/tar"
@@ -44,7 +44,7 @@ func TestEndToEnd(t *testing.T) {
 
 	// Step 4: Create an index for the TAR file
 	tarIndexPath := filepath.Join(tarDir, "testarchive.tar.index.json")
-	if err := createTarIndex(tarFilePath, tarIndexPath); err != nil {
+	if err := CreateTarIndex(tarFilePath, tarIndexPath); err != nil {
 		t.Fatalf("Failed to create TAR index: %v", err)
 	}
 
@@ -56,7 +56,7 @@ func TestEndToEnd(t *testing.T) {
 	defer os.RemoveAll(extractDir)
 
 	extractedFilePath := filepath.Join(extractDir, "file1.txt")
-	if err := extractFileFromTar(tarFilePath, tarIndexPath, "file1.txt", extractedFilePath); err != nil {
+	if err := ExtractFileFromTar(tarFilePath, tarIndexPath, "file1.txt", extractedFilePath); err != nil {
 		t.Fatalf("Failed to extract file: %v", err)
 	}
 

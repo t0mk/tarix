@@ -1,11 +1,10 @@
-package main
+package tarix
 
 import (
 	"archive/tar"
 	"crypto/md5"
 	"encoding/csv"
 	"encoding/hex"
-	"flag"
 	"fmt"
 	"io"
 	"os"
@@ -23,8 +22,8 @@ func hashFilePath(filePath string) string {
 	return hex.EncodeToString(h.Sum(nil))[:HashLen]
 }
 
-// createTarIndex creates an index for an existing TAR file
-func createTarIndex(tarPath, indexPath string) error {
+// CreateTarIndex creates an index for an existing TAR file
+func CreateTarIndex(tarPath, indexPath string) error {
 	// Open the TAR file
 	file, err := os.Open(tarPath)
 	if err != nil {
@@ -147,23 +146,62 @@ func ExtractBytesFromTarWithIndex(tindex *TarIndex, tarFile *os.File, filePath s
 	return data, nil
 }
 
-// extractFileFromTar extracts a file from TAR using the index and writes it to a file
-func extractFileFromTar(tarPath, indexPath, filePath, outputPath string) error {
-	// Use the new function to read the index
-	index, err := readTarIndex(indexPath)
+type TarixHandle struct {
+	TarFile *os.File
+	Index   *TarIndex
+}
+
+func NewTarixHandle(tarPath, indexPath string) (*TarixHandle, error) {
+	index, err := ReadTarIndex(indexPath)
+	if err != nil {
+		return nil, err
+	}
+
+	tarFile, err := os.Open(tarPath)
+	if err != nil {
+		return nil, fmt.Errorf("failed to open tar file: %w", err)
+	}
+	return &TarixHandle{
+		TarFile: tarFile,
+		Index:   index,
+	}, nil
+}
+
+func (th *TarixHandle) ExtractBytesOfFile(filePath string) ([]byte, error) {
+	// Replace cleanFilePath with its hash
+	cleanFilePathHash := hashFilePath(filePath)
+
+	// Find the file in the index using hash
+	fileInfo, ok := th.Index.Files[cleanFilePathHash]
+	if !ok {
+		return nil, fmt.Errorf("file %s not found in index", cleanFilePathHash)
+	}
+
+	// Seek to the file data position (after the header)
+	dataPos := fileInfo.Start + headerSize
+	if _, err := th.TarFile.Seek(dataPos, io.SeekStart); err != nil {
+		return nil, fmt.Errorf("failed to seek to file position: %w", err)
+	}
+
+	// Read the file data
+	data := make([]byte, fileInfo.Size)
+	if _, err := io.ReadFull(th.TarFile, data); err != nil {
+		return nil, fmt.Errorf("failed to read file data: %w", err)
+	}
+	return data, nil
+
+}
+
+// ExtractFileFromTar extracts a file from TAR using the index and writes it to a file
+func ExtractFileFromTar(tarPath, indexPath, filePath, outputPath string) error {
+	tarixHandle, err := NewTarixHandle(tarPath, indexPath)
 	if err != nil {
 		return err
 	}
-
-	// Open the TAR file
-	tarFile, err := os.Open(tarPath)
-	if err != nil {
-		return fmt.Errorf("failed to open tar file: %w", err)
-	}
-	defer tarFile.Close()
+	defer tarixHandle.TarFile.Close()
 
 	// Extract file data as bytes
-	data, err := ExtractBytesFromTarWithIndex(index, tarFile, filePath)
+	data, err := tarixHandle.ExtractBytesOfFile(filePath)
 	if err != nil {
 		return err
 	}
@@ -192,10 +230,10 @@ func extractFileFromTar(tarPath, indexPath, filePath, outputPath string) error {
 	return nil
 }
 
-// listFilesInTar lists files in the TAR using the index
-func listFilesInTar(indexPath string) error {
+// ListFilesInTar lists files in the TAR using the index
+func ListFilesInTar(indexPath string) error {
 	// Use the new function to read the index
-	index, err := readTarIndex(indexPath)
+	index, err := ReadTarIndex(indexPath)
 	if err != nil {
 		return err
 	}
@@ -219,7 +257,7 @@ func listFilesInTar(indexPath string) error {
 	return nil
 }
 
-func readTarIndex(indexPath string) (*TarIndex, error) {
+func ReadTarIndex(indexPath string) (*TarIndex, error) {
 	// Open the index file
 	file, err := os.Open(indexPath)
 	if err != nil {
@@ -279,127 +317,4 @@ func readTarIndex(indexPath string) (*TarIndex, error) {
 
 func parseInt64(value string) (int64, error) {
 	return strconv.ParseInt(value, 10, 64)
-}
-
-func main() {
-	// Command line flags for Index command
-	indexCmd := flag.NewFlagSet("index", flag.ExitOnError)
-	indexTarPath := indexCmd.String("tar", "", "TAR file to index")
-	indexOutputPath := indexCmd.String("output", "", "Output index file (default: <tar>.index.json)")
-
-	// Command line flags for Extract command
-	extractCmd := flag.NewFlagSet("extract", flag.ExitOnError)
-	extractTarPath := extractCmd.String("tar", "", "TAR file to extract from")
-	extractIndexPath := extractCmd.String("index", "", "Index file for the TAR")
-	extractFile := extractCmd.String("file", "", "File path to extract from the TAR")
-	extractOutput := extractCmd.String("output", "", "Output file (default: extracted in current dir, '-' for stdout)")
-
-	printfrompathCmd := flag.NewFlagSet("printfrompath", flag.ExitOnError)
-	printfrompathTarPath := printfrompathCmd.String("tar", "", "TAR file to extract from")
-	printfrompathIndexPath := printfrompathCmd.String("index", "", "Index file for the TAR")
-	printfrompathFilePath := printfrompathCmd.String("file", "", "File path to extract from the TAR")
-
-	// Command line flags for List command
-	listCmd := flag.NewFlagSet("list", flag.ExitOnError)
-	listIndexPath := listCmd.String("index", "", "Index file to list")
-
-	// Check if command line arguments were provided
-	if len(os.Args) < 2 {
-		fmt.Println("Expected 'index', 'extract', 'printfrompath' or 'list' command")
-		fmt.Println("Usage:")
-		fmt.Println("  index -tar <tar-file> -output <index-file>")
-		fmt.Println("  extract -tar <tar-file> -index <index-file> -file <file-path> -output <output-file>")
-		fmt.Println("  list -index <index-file>")
-		fmt.Println("  printfrompath -tar <tar-file> -index <index-file> -file <file-path>")
-		os.Exit(1)
-	}
-
-	switch os.Args[1] {
-	case "index":
-		indexCmd.Parse(os.Args[2:])
-		if *indexTarPath == "" {
-			fmt.Println("TAR file is required")
-			indexCmd.PrintDefaults()
-			os.Exit(1)
-		}
-
-		// Default output path if not specified
-		outputPath := *indexOutputPath
-		if outputPath == "" {
-			outputPath = *indexTarPath + ".index.json"
-		}
-
-		err := createTarIndex(*indexTarPath, outputPath)
-		if err != nil {
-			fmt.Fprintf(os.Stderr, "Error: %v\n", err)
-			os.Exit(1)
-		}
-
-	case "printfrompath":
-		printfrompathCmd.Parse(os.Args[2:])
-		if *printfrompathTarPath == "" || *printfrompathIndexPath == "" || *printfrompathFilePath == "" {
-			fmt.Println("TAR file, index file, and file to extract are required")
-			printfrompathCmd.PrintDefaults()
-			os.Exit(1)
-		}
-
-		tarIndex, err := readTarIndex(*printfrompathIndexPath)
-		if err != nil {
-			fmt.Fprintf(os.Stderr, "Error: %v\n", err)
-			os.Exit(1)
-		}
-
-		tarFile, err := os.Open(*printfrompathTarPath)
-		if err != nil {
-			fmt.Fprintf(os.Stderr, "Error: %v\n", err)
-			os.Exit(1)
-		}
-
-		bs, err := ExtractBytesFromTarWithIndex(tarIndex, tarFile, *printfrompathFilePath)
-		if err != nil {
-			fmt.Fprintf(os.Stderr, "Error: %v\n", err)
-			os.Exit(1)
-		}
-
-		fmt.Println(string(bs))
-
-	case "extract":
-		extractCmd.Parse(os.Args[2:])
-		if *extractTarPath == "" || *extractIndexPath == "" || *extractFile == "" {
-			fmt.Println("TAR file, index file, and file to extract are required")
-			extractCmd.PrintDefaults()
-			os.Exit(1)
-		}
-
-		// Default output path if not specified
-		outputPath := *extractOutput
-		if outputPath == "" {
-			outputPath = filepath.Base(*extractFile)
-		}
-
-		err := extractFileFromTar(*extractTarPath, *extractIndexPath, *extractFile, outputPath)
-		if err != nil {
-			fmt.Fprintf(os.Stderr, "Error: %v\n", err)
-			os.Exit(1)
-		}
-
-	case "list":
-		listCmd.Parse(os.Args[2:])
-		if *listIndexPath == "" {
-			fmt.Println("Index file is required")
-			listCmd.PrintDefaults()
-			os.Exit(1)
-		}
-
-		err := listFilesInTar(*listIndexPath)
-		if err != nil {
-			fmt.Fprintf(os.Stderr, "Error: %v\n", err)
-			os.Exit(1)
-		}
-
-	default:
-		fmt.Printf("Unknown command: %s\n", os.Args[1])
-		fmt.Println("Expected 'index', 'extract', 'printfrompath' or 'list'")
-		os.Exit(1)
-	}
 }
