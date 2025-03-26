@@ -4,7 +4,7 @@ Tarix is a command-line utility for efficient extraction from tar files. It crea
 
 I use it for fast access to hundreds of thousands of files stored in Fuse-mount S3-like storage. It allows me to work with one archive instead of 800k file (faster transfer, easier handling ,..). Without Fuse mount, I would use HTTP Range requests.
 
-## Usage
+## CLI Usage
 
 ```bash
 # Create an index for a tar file
@@ -18,6 +18,28 @@ tarix list -index <index-file>
 
 # Print file contents directly to stdout
 tarix printfrompath -tar <tar-file> -index <index-file> -file <file-path>
+```
+
+## Lookup Usage in Go
+
+```golang
+
+	DataTar = os.Getenv(dataTarEnv)
+	CheckFileExists(DataTar)
+	DataIndex = os.Getenv(dataIndexEnv)
+	CheckFileExists(DataIndex)
+
+	DataHandle, err = tarix.NewTarixHandle(DataTar, DataIndex)
+	if err != nil {
+		panic(err)
+	}
+    
+    // [...]
+
+	bs, err := DataHandle.ExtractBytesOfFile(key)
+	if err != nil {
+		return nil, err
+	}
 ```
 
 ## How it works
